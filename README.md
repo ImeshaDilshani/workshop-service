@@ -41,13 +41,13 @@ php artisan serve
 
 Open **http://localhost:8000** and log in.
 
-### Seeded Accounts
+### Seeded Account
 
-| Role    | Email                  | Password   |
-|---------|------------------------|------------|
-| Admin   | admin@workshop.com     | `password` |
-| Manager | manager@workshop.com   | `password` |
-| Staff   | staff@workshop.com     | `password` |
+| Role  | Email              | Password   |
+|-------|--------------------|------------|
+| Admin | admin@workshop.com | `password` |
+
+> Only the Admin is seeded (as required by the spec). Log in as Admin, go to **Users → Create User** to add Manager and Staff accounts.
 
 Six sample workshops are pre-loaded so you can start testing immediately.
 

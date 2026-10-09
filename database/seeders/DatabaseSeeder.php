@@ -19,29 +19,12 @@ class DatabaseSeeder extends Seeder
     {
         // ── Seeded Admin Account ─────────────────────────────────
         // As required by the spec: first Admin is seeded.
+        // Admins create every other account via the user management UI.
         User::create([
             'name' => 'Admin User',
             'email' => 'admin@workshop.com',
             'password' => Hash::make('password'),
             'role' => 'admin',
-            'email_verified_at' => now(),
-        ]);
-
-        // Sample manager
-        User::create([
-            'name' => 'Sarah Manager',
-            'email' => 'manager@workshop.com',
-            'password' => Hash::make('password'),
-            'role' => 'manager',
-            'email_verified_at' => now(),
-        ]);
-
-        // Sample staff
-        User::create([
-            'name' => 'John Staff',
-            'email' => 'staff@workshop.com',
-            'password' => Hash::make('password'),
-            'role' => 'staff',
             'email_verified_at' => now(),
         ]);
 
