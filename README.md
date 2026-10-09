@@ -1,59 +1,156 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# WorkshopHub — Workshop Registration Service
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A full-stack workshop registration system built with **Laravel 12 + Blade + Tailwind CSS**. Designed for a community training centre to manage workshops, registrations, and staff accounts with role-based access control.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Quick Start
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+### Prerequisites
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- **PHP 8.2+**
+- **MySQL 8.0+** (XAMPP, Laragon, or standalone)
+- **Composer**
+- **Node.js 18+** & npm
 
-## Learning Laravel
+### Setup
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+```bash
+# 1. Clone and install
+git clone <repo-url> && cd workshop-service
+composer install
+npm install
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+# 2. Environment
+cp .env.example .env
+php artisan key:generate
 
-## Laravel Sponsors
+# 3. Create MySQL database
+mysql -u root -e "CREATE DATABASE IF NOT EXISTS workshop_service;"
+# Then update .env with your DB credentials if different from root/no-password
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+# 4. Migrate & seed
+php artisan migrate:fresh --seed
 
-### Premium Partners
+# 5. Build frontend assets
+npm run build
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+# 6. Run
+php artisan serve
+```
 
-## Contributing
+Open **http://localhost:8000** and log in.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Seeded Accounts
 
-## Code of Conduct
+| Role    | Email                  | Password   |
+|---------|------------------------|------------|
+| Admin   | admin@workshop.com     | `password` |
+| Manager | manager@workshop.com   | `password` |
+| Staff   | staff@workshop.com     | `password` |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Six sample workshops are pre-loaded so you can start testing immediately.
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Architecture & Design Decisions
 
-## License
+### Stack Choices
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+| Layer      | Choice               | Why                                                                 |
+|------------|----------------------|---------------------------------------------------------------------|
+| Backend    | Laravel 12           | Mature, batteries-included PHP framework with excellent ORM, auth, migrations, and middleware |
+| Auth       | Laravel Breeze       | Lightweight auth scaffolding with Blade — no SPA complexity needed for a 15-person internal tool |
+| Frontend   | Blade + Tailwind CSS | Server-rendered views are fast to build, simple to deploy, and perfect for an internal CRUD app |
+| Database   | MySQL                | Proper row-level `SELECT ... FOR UPDATE` locking essential for concurrent registration safety |
+| Locking    | Pessimistic locks    | `SELECT ... FOR UPDATE` in a transaction prevents concurrent overbooking |
+
+### Permission Matrix (Backend-Enforced)
+
+The spec explicitly states: *"Anything not marked must be refused by the backend, not just hidden in the interface."*
+
+| Action                        | Admin | Manager | Staff |
+|-------------------------------|-------|---------|-------|
+| Create user accounts & roles  | ✅     | ❌       | ❌     |
+| Add & edit workshops          | ❌     | ✅       | ❌     |
+| Register & cancel attendees   | ❌     | ✅       | ✅     |
+| View workshops & history      | ❌     | ✅       | ✅     |
+
+Enforcement is via `CheckRole` middleware on routes (e.g., `->middleware('role:manager')`), not UI hiding. An Admin who manually crafts a request to `/workshops` gets a **403 Forbidden**.
+
+### How Over-Registration Is Prevented
+
+The core race condition: *"Two of us promising the last seat at the same time."*
+
+```php
+DB::transaction(function () use ($workshop, $validated) {
+    // Lock the workshop row — blocks any other concurrent registration
+    $lockedWorkshop = Workshop::lockForUpdate()->findOrFail($workshop->id);
+
+    // Count active registrations while holding the lock
+    $activeCount = Registration::where('workshop_id', $lockedWorkshop->id)
+        ->where('status', 'active')
+        ->count();
+
+    if ($activeCount >= $lockedWorkshop->capacity) {
+        throw new \Exception('This workshop is full.');
+    }
+
+    return Registration::create([...]);
+});
+```
+
+`lockForUpdate()` acquires a row-level pessimistic lock on the workshop row in MySQL. If two staff members submit at the exact same moment, one transaction blocks until the other commits. The second transaction then re-reads the active count and sees the seat is taken. **Capacity can never be exceeded.**
+
+### Registration History
+
+Records are **never deleted**. Cancelling a registration flips its `status` to `cancelled` and records:
+- `cancelled_by` — which staff member cancelled it
+- `cancelled_at` — when it happened
+
+The full history (active + cancelled) is always accessible via the workshop detail page and the dedicated history view.
+
+### Bonus Features Implemented
+
+- **Audit Trail**: Every user creation/update/deletion, workshop creation/edit, and registration/cancellation is logged with who did it, when, and old/new values. Viewable at `/audit-logs` (Admin only).
+- **Extra fields**: Added `location` and `description` to workshops beyond the spreadsheet spec.
+
+### What I'd Add With More Time
+
+- **Waitlist**: Queue attendees when full, auto-offer seats on cancellation
+- **Email notifications**: Confirm registrations, notify waitlisted attendees
+- **Comprehensive test suite**: Feature tests for every route, especially concurrency tests
+- **API endpoints**: REST API for potential future mobile or external integrations
+- **Export**: CSV/PDF export of registration lists per workshop
+
+---
+
+## Project Structure
+
+```
+app/
+├── Http/
+│   ├── Controllers/
+│   │   ├── DashboardController.php    # Role-aware dashboard
+│   │   ├── UserController.php         # Admin-only CRUD
+│   │   ├── WorkshopController.php     # Manager create/edit, all view
+│   │   ├── RegistrationController.php # Pessimistic-locked registration
+│   │   └── AuditLogController.php     # Admin-only audit viewer
+│   └── Middleware/
+│       └── CheckRole.php              # Backend role enforcement
+├── Models/
+│   ├── User.php                       # + role column & helpers
+│   ├── Workshop.php                   # + query scopes for filtering
+│   ├── Registration.php               # + active/cancelled scopes
+│   └── AuditLog.php                   # Polymorphic audit trail
+database/
+├── migrations/                        # users+role, workshops, registrations, audit_logs
+└── seeders/
+    └── DatabaseSeeder.php             # Admin + sample data
+resources/views/
+├── dashboard.blade.php                # Role-specific dashboards
+├── workshops/                         # index, create, edit, show
+├── registrations/                     # create, history
+├── users/                             # index, create, edit (Admin only)
+└── audit/                             # index (Admin only)
+```
