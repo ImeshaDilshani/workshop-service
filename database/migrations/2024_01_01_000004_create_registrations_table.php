@@ -1,0 +1,37 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('registrations', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('workshop_id')->constrained()->onDelete('cascade');
+            $table->string('attendee_name');
+            $table->string('attendee_email');
+            $table->enum('status', ['active', 'cancelled'])->default('active');
+            $table->foreignId('registered_by')->constrained('users')->onDelete('cascade');
+            $table->foreignId('cancelled_by')->nullable()->constrained('users')->onDelete('set null');
+            $table->timestamp('cancelled_at')->nullable();
+            $table->timestamps();
+
+            // Index for quick lookups when counting active registrations
+            $table->index(['workshop_id', 'status']);
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('registrations');
+    }
+};
